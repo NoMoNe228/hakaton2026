@@ -1,0 +1,6 @@
+sudo apt-get install -y ffmpeg
+
+pip install openai-whisper torch
+
+curl -fsSL https://ollama.com/install.sh | sh
+

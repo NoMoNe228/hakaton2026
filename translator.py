@@ -1,12 +1,19 @@
 import whisper
+_cached_model = None
 
 def get_transcription_array_with_timestamps(video_path: str) -> list[str]:
-    print("Загрузка нейросети Whisper...")
-    # Модель 'medium' оптимальна по скорости и качеству для двуязычной речи
-    model = whisper.load_model("medium")
+    global _cached_model
     
+    # ПРОВЕРКА: Если модель еще не загружена в память, загружаем её
+    if _cached_model is None:
+        print("Модель не найдена в памяти. Загрузка нейросети Whisper...")
+        # Используем "small" для скорости или "medium" для максимального качества
+        _cached_model = whisper.load_model("small")
+        print("Модель успешно загружена и сохранена в кэш!")
+    else:
+        print("Отлично! Модель уже была загружена ранее, используем её повторно.")
     print("Начало расшифровки...")
-    result = model.transcribe(video_path, task="transcribe")
+    result = _cached_model.transcribe(video_path, task="transcribe")
     
     subtitles_array = []
     
@@ -29,7 +36,16 @@ def get_transcription_array_with_timestamps(video_path: str) -> list[str]:
         subtitles_array.append(timestamp_str)
             
     return subtitles_array
+# --- ЭТОТ БЛОК ОБЯЗАТЕЛЬНО ДОЛЖЕН БЫТЬ В САМОМ НИЗУ ФАЙЛА ---
+if __name__ == "__main__":
+    # Укажите точное имя вашего видеофайла, который лежит в папке hakaton2026
+    video_file = "testvid.mp4" 
+    
+    # 1. Запускаем функцию и сохраняем результат в переменную lines
+    lines = get_transcription_array_with_timestamps(video_file)
+    
+    # 2. Выводим результат в терминал построчно
+    print("\n--- Результат расшифровки: ---")
+    for line in lines:
+        print(line)
 
-# --- Пример использования ---
-video_file = "testvid.mp4"
-lines = get_transcription_array_with_timestamps(video_file)
