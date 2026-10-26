@@ -13,7 +13,7 @@ def get_transcription_array_with_timestamps(video_path: str) -> list[str]:
     else:
         print("Отлично! Модель уже была загружена ранее, используем её повторно.")
     print("Начало расшифровки...")
-    result = model.transcribe(video_path, task="transcribe")
+    result = _cached_model.transcribe(video_path, task="transcribe")
     
     subtitles_array = []
     
