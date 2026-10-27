@@ -36,7 +36,7 @@
 Коротко, для Windows с видеокартой NVIDIA (нужны Python 3.11+, Node.js 18+, Git и [Ollama](https://ollama.com)):
 
 ```powershell
-git clone https://github.com/WiverHome/sut.git
+git clone https://github.com/NoMoNe228/hakaton2026.git
 cd sut
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install torch --index-url https://download.pytorch.org/whl/cu128
