@@ -1,0 +1,38 @@
+/* Переключатель языка расшифровки: две кнопки-половинки */
+.lang-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.lang-switch button {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.lang-switch button + button {
+  border-left: 1px solid var(--border);
+}
+.lang-switch button.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.lang-switch button.pending:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+.lang-switch .lang-note {
+  font-weight: 400;
+}
+.transcript-tools.with-lang {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}

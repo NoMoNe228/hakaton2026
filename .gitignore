@@ -1,0 +1,16 @@
+# Окружение и сборки
+.venv/
+node_modules/
+frontend/dist/
+__pycache__/
+*.pyc
+
+# Данные: видео, звук, база — не в git
+data/
+*.gguf
+*.wav
+*.mp4
+*.webm
+
+# Локальные настройки
+.env

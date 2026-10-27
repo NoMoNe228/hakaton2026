@@ -1,0 +1,31 @@
+# Два варианта, данные у них общие (том sut-data), работает один из них:
+#   только процессор (образ sut:cpu, ~3 ГБ):  docker compose up -d --build
+#   с видеокартой NVIDIA (образ sut:gpu, ~13 ГБ):  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+# Сайт — http://127.0.0.1:8000. Подробно — DOCKER.md
+
+services:
+  sut:
+    build:
+      context: .
+      args:
+        TORCH_INDEX: https://download.pytorch.org/whl/cpu
+    image: sut:cpu
+    container_name: sut
+    restart: unless-stopped
+    ports:
+      # Входа по паролю в сервисе нет, поэтому по умолчанию сайт открывается только на этом компьютере.
+      # Открыть для сети: SUT_BIND=0.0.0.0 в файле .env рядом с этим файлом.
+      - "${SUT_BIND:-127.0.0.1}:${SUT_PORT:-8000}:8000"
+    environment:
+      # Ollama работает на самом компьютере, не в Docker
+      SUT_OLLAMA: ${SUT_OLLAMA:-http://host.docker.internal:11434}
+      SUT_LLM: ${SUT_LLM:-qwen-instruct:4b}
+      SUT_DEVICE: ${SUT_DEVICE:-auto}
+    extra_hosts:
+      # На Linux имя host.docker.internal само не появляется — указываем, что это компьютер
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - sut-data:/data
+
+volumes:
+  sut-data:

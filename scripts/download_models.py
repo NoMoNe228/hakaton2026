@@ -5,8 +5,10 @@
 просто запустить снова — готовые куски не перекачиваются.
 
 Запуск: .venv\\Scripts\\python.exe scripts\\download_models.py
+  --if-missing — ничего не делать, если все модели уже на месте (так он запускается в Docker)
 """
 import json
+import os
 import sys
 import threading
 import time
@@ -16,7 +18,10 @@ from pathlib import Path
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
-MODELS = ROOT / "data" / "models"
+# Папка моделей и адрес Ollama — как у сервиса (в Docker они другие: /data/models и контейнер ollama)
+MODELS = Path(os.getenv("SUT_MODELS", ROOT / "data" / "models"))
+OLLAMA = os.getenv("SUT_OLLAMA", "http://127.0.0.1:11434").rstrip("/")
+LLM_NAME = os.getenv("SUT_LLM", "qwen-instruct:4b")
 HF = "https://huggingface.co"
 PART = 8 << 20
 THREADS = 16
@@ -97,18 +102,44 @@ def download(repo, name, folder):
     return total
 
 
-def ollama_has(name="qwen-instruct:4b") -> bool:
+def ollama_models() -> set | None:
+    """Модели в Ollama; None — Ollama недоступна."""
     try:
-        return any(m["name"] == name for m in httpx.get("http://127.0.0.1:11434/api/tags", timeout=3).json()["models"])
+        return {m["name"] for m in httpx.get(f"{OLLAMA}/api/tags", timeout=3).json()["models"]}
     except Exception:
-        return False
+        return None
+
+
+def ollama_has(name=LLM_NAME) -> bool:
+    names = ollama_models() or set()
+    return name in names or f"{name}:latest" in names
+
+
+def _complete(key) -> bool:
+    """Модель уже лежит целиком: все файлы есть, недокачанных частей нет."""
+    folder = MODELS / key
+    return all((folder / f).exists() for f in FILES[key][1]) and not any(folder.glob("*.part*"))
 
 
 def main():
-    only = set(sys.argv[1:])
-    skip = {"qwen3-4b-instruct"} if ollama_has() else set()
-    if skip:
+    args = sys.argv[1:]
+    only = {a for a in args if not a.startswith("--")}
+    # Языковую модель качаем, только если Ollama доступна и её там ещё нет: иначе файл некуда подключить
+    reachable = ollama_models() is not None
+    llm_ready = reachable and ollama_has()
+    if "--if-missing" in args:
+        # Запуск в Docker: если всё на месте — в интернет не ходим (сервер может быть без него)
+        need = [k for k in FILES if (not only or k in only) and k != "qwen3-4b-instruct" and not _complete(k)]
+        if not need and (llm_ready or not reachable):
+            print("Все модели на месте" if llm_ready else
+                  f"Модели поиска на месте. Ollama недоступна ({OLLAMA}) — без неё не будет конспектов и чата")
+            return
+    skip = set() if reachable and not llm_ready else {"qwen3-4b-instruct"}
+    if llm_ready:
         print("Языковая модель уже подключена к Ollama — пропускаю")
+    elif not reachable:
+        print(f"Ollama недоступна ({OLLAMA}) — языковую модель пропускаю. "
+              "Запустите Ollama и повторите, чтобы включить конспекты и чат")
     jobs = [(k, repo, f) for k, (repo, files) in FILES.items()
             if (not only or k in only) and k not in skip for f in files]
     t0 = time.time()
@@ -130,21 +161,42 @@ def main():
         register_ollama()
 
 
-def register_ollama(name="qwen-instruct:4b"):
-    """Подключает скачанный файл модели к Ollama, без выхода Ollama в интернет."""
-    import os
-    import shutil
-    import subprocess
-
+def register_ollama(name=LLM_NAME):
+    """Подключает скачанный файл модели к Ollama, без выхода Ollama в интернет.
+    Файл передаётся Ollama по сети — так работает и с Ollama в соседнем контейнере."""
     folder = MODELS / "qwen3-4b-instruct"
     gguf = next(folder.glob("*.gguf"), None)
-    exe = shutil.which("ollama") or os.path.expandvars(r"%LOCALAPPDATA%\Programs\Ollama\ollama.exe")
-    if not gguf or not Path(exe).exists():
-        print("Ollama или файл модели не найдены — подключите модель вручную (см. README)")
+    if not gguf:
+        print("Файл языковой модели не найден — подключите модель вручную (см. INSTALL.md)")
         return
-    (folder / "Modelfile").write_text(f"FROM ./{gguf.name}\nPARAMETER temperature 0.3\n", encoding="utf-8")
-    r = subprocess.run([exe, "create", name, "-f", "Modelfile"], cwd=folder)
-    print(f"Модель {name} подключена к Ollama" if r.returncode == 0 else "Не удалось подключить модель к Ollama")
+    try:
+        _register_http(gguf, name)
+    except Exception as e:
+        print(f"Не удалось подключить модель к Ollama ({OLLAMA}): {e}")
+        return
+    print(f"Модель {name} подключена к Ollama")
+    if os.getenv("SUT_DROP_GGUF") == "1":
+        gguf.unlink()  # у Ollama своя копия — файл больше не нужен
+        print("Файл модели удалён: у Ollama своя копия")
+
+
+def _register_http(gguf: Path, name: str):
+    import hashlib
+
+    print("Подключаю модель к Ollama…", flush=True)
+    h = hashlib.sha256()
+    with gguf.open("rb") as f:
+        for block in iter(lambda: f.read(8 << 20), b""):
+            h.update(block)
+    digest = f"sha256:{h.hexdigest()}"
+    with httpx.Client(timeout=None) as c:
+        if c.head(f"{OLLAMA}/api/blobs/{digest}").status_code != 200:
+            with gguf.open("rb") as f:
+                c.post(f"{OLLAMA}/api/blobs/{digest}",
+                       content=iter(lambda: f.read(1 << 20), b"")).raise_for_status()
+        r = c.post(f"{OLLAMA}/api/create", json={"model": name, "files": {gguf.name: digest},
+                                                  "parameters": {"temperature": 0.3}, "stream": False})
+        r.raise_for_status()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,15 @@
+# Вариант с видеокартой NVIDIA: свой образ sut:gpu (PyTorch с CUDA) и доступ контейнера к видеокарте.
+# docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+services:
+  sut:
+    build:
+      args:
+        TORCH_INDEX: https://download.pytorch.org/whl/cu128
+    image: sut:gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

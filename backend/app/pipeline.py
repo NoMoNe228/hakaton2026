@@ -137,8 +137,12 @@ def _process(lecture_id: str):
     segments = db.get_segments(lecture_id)
     if not segments:
         _stage(lecture_id, "transcribing")
+        llm.gpu_busy.set()  # вопросы в чате на это время — на процессоре
         llm.unload()
-        segs, lang, dur = _transcribe(audio, lambda f: _stage(lecture_id, "transcribing", f))
+        try:
+            segs, lang, dur = _transcribe(audio, lambda f: _stage(lecture_id, "transcribing", f))
+        finally:
+            llm.gpu_busy.clear()
         if not segs:
             raise RuntimeError("В видео не найдено речи")
         _check(lecture_id)

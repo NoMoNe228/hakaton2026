@@ -1,6 +1,10 @@
 // Боковая панель «Суть»: находит лекцию для видео на открытой странице и показывает
 // оглавление, расшифровку, конспект и поиск. Видео на странице перематывается по клику.
-const API = 'http://127.0.0.1:8000'
+// Адрес сервиса и вход берутся из настроек панели (шестерёнка вверху)
+const SITE = 'https://sut.foreio.tech'
+const LOCAL = 'http://127.0.0.1:8000'
+let API = SITE
+let AUTH = '' // заголовок Authorization для сайта с входом по паролю
 const STATUS = {
   queued: 'В очереди',
   downloading: 'Скачиваю видео',
@@ -66,10 +70,101 @@ function fmt(sec) {
   return h ? `${h}:${m}:${s}` : `${m}:${s}`
 }
 
-async function api(path, opts) {
-  const r = await fetch(API + path, opts)
+// ---------- Настройки: где работает «Суть» и вход на сайт ----------
+
+const store = {
+  async get() {
+    try {
+      if (window.chrome?.storage?.local) return (await chrome.storage.local.get('sut')).sut || null
+      return JSON.parse(localStorage.getItem('sut') || 'null')
+    } catch {
+      return null
+    }
+  },
+  async set(v) {
+    if (window.chrome?.storage?.local) return chrome.storage.local.set({ sut: v })
+    localStorage.setItem('sut', JSON.stringify(v))
+  },
+}
+
+const authHeader = (login, password) =>
+  login ? 'Basic ' + btoa(unescape(encodeURIComponent(`${login}:${password}`))) : ''
+
+const isLocal = (url) => /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(url)
+
+function applySettings(cfg) {
+  API = (cfg?.server || SITE).replace(/\/+$/, '')
+  AUTH = authHeader(cfg?.login, cfg?.password)
+}
+
+class AuthError extends Error {}
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) }
+  if (AUTH) headers.Authorization = AUTH
+  const r = await fetch(API + path, { ...opts, headers })
+  if (r.status === 401) throw new AuthError('Неверный логин или пароль')
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText)
   return r.json()
+}
+
+async function showSettings(note) {
+  stopTimers()
+  st.gen++
+  const cfg = (await store.get()) || { server: SITE }
+  app.innerHTML = `<form class="alert settings" id="settings">
+    <p><b>Подключение к «Сути»</b></p>
+    ${note ? `<p class="muted">${esc(note)}</p>` : ''}
+    <div class="choice">
+      <button type="button" data-preset="${SITE}">Сайт sut.foreio.tech</button>
+      <button type="button" data-preset="${LOCAL}">Этот компьютер</button>
+    </div>
+    <label>Адрес сервиса<input name="server" value="${esc(cfg.server || SITE)}" placeholder="https://…" /></label>
+    <div id="cred">
+      <label>Логин<input name="login" value="${esc(cfg.login || '')}" autocomplete="username" /></label>
+      <label>Пароль<input name="password" type="password" value="${esc(cfg.password || '')}" autocomplete="current-password" /></label>
+      <p class="muted small">Те же, что для входа на сайт. Хранятся только в этом браузере.</p>
+    </div>
+    <button class="btn" id="save">Проверить и сохранить</button>
+    <div id="msg" class="small" style="margin-top:8px"></div>
+  </form>`
+  const f = $('#settings')
+  const sync = () => {
+    const local = isLocal(f.server.value.trim())
+    $('#cred').style.display = local ? 'none' : ''
+    f.querySelectorAll('[data-preset]').forEach((b) => b.classList.toggle('on', b.dataset.preset === f.server.value.trim()))
+  }
+  f.querySelectorAll('[data-preset]').forEach((b) =>
+    b.addEventListener('click', () => {
+      f.server.value = b.dataset.preset
+      sync()
+    }),
+  )
+  f.server.addEventListener('input', sync)
+  sync()
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const server = f.server.value.trim().replace(/\/+$/, '')
+    const local = isLocal(server)
+    const next = { server, login: local ? '' : f.login.value.trim(), password: local ? '' : f.password.value }
+    const msg = $('#msg')
+    msg.style.color = ''
+    msg.textContent = 'Проверяю…'
+    const saved = { API, AUTH }
+    applySettings(next)
+    try {
+      await api('/api/health')
+      await store.set(next)
+      setServer(true)
+      init()
+    } catch (err) {
+      API = saved.API
+      AUTH = saved.AUTH
+      msg.style.color = 'var(--danger)'
+      msg.textContent =
+        err instanceof AuthError ? err.message : `Сервис по этому адресу не отвечает (${err.message || 'нет связи'})`
+    }
+  })
 }
 
 function setServer(ok) {
@@ -102,6 +197,12 @@ function stopTimers() {
 async function init() {
   const gen = ++st.gen
   stopTimers()
+  const cfg = await store.get()
+  // Первый запуск: сначала спросим, где работает «Суть» (на стенде — сразу этот компьютер)
+  if (!cfg && !window.SUT_BRIDGE) {
+    return showSettings('Выберите, где работает «Суть». Обычно это сайт — нужны логин и пароль от него.')
+  }
+  applySettings(cfg || { server: LOCAL })
   const tab = await bridge.tab()
   st.tab = tab
   st.url = tab?.url || ''
@@ -113,9 +214,9 @@ async function init() {
   try {
     info = await api(`/api/lookup?url=${encodeURIComponent(st.url)}`)
     setServer(true)
-  } catch {
+  } catch (err) {
     setServer(false)
-    return serverDown()
+    return serverDown(err)
   }
   // Видео во встроенном плеере (iframe): пробуем адрес фрейма, где нашлось видео
   if (!info.lecture) {
@@ -141,19 +242,25 @@ function message(text, withOpen) {
   $('#open-app')?.addEventListener('click', () => bridge.open(API))
 }
 
-function serverDown() {
+function serverDown(err) {
+  if (err instanceof AuthError) return showSettings('Сайт не принял логин или пароль. Проверьте их.')
+  const where = isLocal(API)
+    ? 'Запустите start.ps1 в папке проекта и нажмите «Повторить».'
+    : `Сайт ${esc(API.replace(/^https?:\/\//, ''))} работает, пока включён компьютер с сервисом. Попробуйте чуть позже.`
   app.innerHTML = `<div class="alert">
-    <p><b>Сервер «Суть» не запущен.</b></p>
-    <p class="muted">Запустите start.ps1 в папке проекта и нажмите «Повторить».</p>
-    <button class="btn" id="retry">Повторить</button></div>`
+    <p><b>«Суть» сейчас не отвечает.</b></p>
+    <p class="muted">${where}</p>
+    <button class="btn" id="retry">Повторить</button>
+    <button class="link" id="to-settings" style="margin-left:10px">Настройки</button></div>`
   $('#retry').addEventListener('click', init)
+  $('#to-settings').addEventListener('click', () => showSettings())
 }
 
 function notProcessed() {
   const title = (st.tab.title || '').replace(/\s*[-–|]\s*(YouTube|RUTUBE|Rutube|ВКонтакте|VK Видео|Vimeo)\s*$/i, '')
   app.innerHTML = `<div class="alert">
     <p><b>Это видео ещё не обработано.</b></p>
-    <p class="muted">«Суть» скачает его, распознает речь и построит оглавление и конспект. Всё на этом компьютере.</p>
+    <p class="muted">«Суть» скачает его, распознает речь и построит оглавление и конспект — своими моделями, без внешних сервисов.</p>
     <button class="btn" id="process">Обработать в «Сути»</button>
     <div id="err" class="small" style="color:var(--danger);margin-top:8px"></div></div>`
   $('#process').addEventListener('click', async (e) => {
@@ -613,6 +720,8 @@ async function search(e) {
     body.innerHTML = `<div class="pad" style="color:var(--danger)">${esc(err.message)}</div>`
   }
 }
+
+$('#gear').addEventListener('click', () => showSettings())
 
 bridge.onChange(() => {
   // Сайты вроде YouTube меняют адрес без перезагрузки — проверяем, сменилось ли видео

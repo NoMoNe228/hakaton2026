@@ -1,0 +1,277 @@
+/* Энциклопедия курса и справка */
+
+.topnav {
+  display: flex;
+  gap: 4px;
+}
+.topnav a {
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.topnav a:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  text-decoration: none;
+}
+.topnav a.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.kb-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.kb-head h1 {
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+.kb-head p {
+  margin: 0;
+  max-width: 620px;
+}
+.kb-help-link {
+  white-space: nowrap;
+  font-weight: 600;
+  padding-top: 8px;
+}
+
+.kb-tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.kb-tools .searchbox {
+  flex: 1;
+  max-width: 420px;
+}
+
+.kb-letters {
+  position: sticky;
+  top: 58px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 0;
+  margin-bottom: 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.kb-letters a {
+  min-width: 28px;
+  text-align: center;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 14px;
+}
+.kb-letters a:hover {
+  background: var(--accent-soft);
+  text-decoration: none;
+}
+
+.kb-letter {
+  scroll-margin-top: 110px;
+}
+.kb-letter h2 {
+  margin: 18px 0 6px;
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.kb-concept {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 6px;
+  scroll-margin-top: 110px;
+}
+.kb-concept.open {
+  border-color: var(--accent);
+}
+.kb-concept-head {
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: 0;
+  text-align: left;
+}
+.kb-concept-head .chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+.kb-concept.open .chevron {
+  transform: rotate(90deg);
+}
+.kb-name {
+  font-weight: 700;
+}
+.kb-def {
+  color: var(--muted);
+  font-size: 14px;
+}
+.kb-concept.open .kb-def {
+  visibility: hidden;
+}
+.kb-count {
+  white-space: nowrap;
+}
+
+.kb-body {
+  padding: 0 16px 16px 40px;
+}
+.kb-body h3 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 14px 0 8px;
+}
+.kb-mentions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.kb-mentions li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+.kb-mentions .timecode:hover {
+  text-decoration: none;
+  filter: brightness(1.1);
+}
+.kb-lecture {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--muted);
+}
+.examples.left {
+  justify-content: flex-start;
+  margin-top: 0;
+}
+.kb-explain {
+  margin-top: 16px;
+}
+.kb-answer {
+  margin-top: 8px;
+}
+.kb-answer .answer {
+  white-space: pre-wrap;
+}
+
+/* Справка */
+.help-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.help-toc a {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+.help-toc a:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+.help section {
+  scroll-margin-top: 70px;
+  margin-top: 28px;
+}
+.help h2 {
+  font-size: 21px;
+}
+.help li {
+  margin-bottom: 6px;
+}
+.help code,
+.help kbd {
+  font: 13px ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+.help-keys td {
+  padding: 4px 16px 4px 0;
+}
+.help details {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+.help summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.help details p {
+  margin: 8px 0 0;
+}
+
+@media (max-width: 640px) {
+  .kb-head {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .kb-help-link {
+    padding-top: 0;
+  }
+  .kb-tools {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .kb-tools .searchbox {
+    max-width: none;
+  }
+  .kb-concept-head {
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+  }
+  .kb-def {
+    display: none;
+  }
+  .kb-body {
+    padding-left: 16px;
+  }
+  /* Меню — второй строкой шапки, чтобы не теснить поиск */
+  .topbar {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .topnav {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
+  .topnav a {
+    padding: 4px 10px;
+    font-size: 13px;
+  }
+  .kb-letters {
+    top: 92px;
+  }
+}

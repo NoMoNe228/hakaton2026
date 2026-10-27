@@ -9,6 +9,7 @@
 4. Внутри найденного куска выбирается самая подходящая фраза — к её началу и ведёт таймкод.
 """
 import math
+import os
 import threading
 from collections import Counter, defaultdict
 
@@ -16,7 +17,7 @@ import numpy as np
 
 from . import db
 from .config import EMBED_MODEL, RERANK_MODEL, device
-from .textutil import highlight_spans, tokens
+from .textutil import WORD, distance, highlight_spans, is_cyrillic, sound_key, tokens
 
 _gpu_lock = threading.Lock()
 _models = {}
@@ -58,7 +59,7 @@ def _load_models():
     except Exception as e:
         ce = None
         print(f"[search] модель-«судья» не загрузилась ({e}), ищу без неё")
-    _models["emb"], _models["ce"] = emb, ce
+    _models["emb"], _models["ce"], _models["dev"] = emb, ce, dev
     _models_ready.set()
     print(f"[search] модели загружены на {dev}, torch {torch.__version__}")
 
@@ -169,6 +170,7 @@ class Index:
     def __init__(self):
         self.lock = threading.RLock()
         self.rows, self.emb, self.bm25 = [], np.zeros((0, 1024), np.float32), BM25([])
+        self.words, self.sounds = Counter(), {}
         self.seg_cache = {}
 
     def rebuild(self):
@@ -185,9 +187,45 @@ class Index:
         bm = BM25([tokens(r["text"] + " " + " ".join(t for st, t in tr.get(r["lecture_id"], ())
                                                        if r["start"] - 0.01 <= st < r["end"]))
                    for r in rows])
+        # Словарь лекций: какие слова там встречаются и как они звучат (для «виндовс» → Windows)
+        forms = Counter(m.group() for r in rows for m in WORD.finditer(r["text"]))
+        words, spelling = Counter(), {}
+        for f, n in forms.most_common():
+            words[f.lower()] += n
+            spelling.setdefault(f.lower(), f)  # самое частое написание: Windows, а не windows
+        # Похожие по звучанию слова почти всегда совпадают первой или последней буквой — по ним и раскладываем,
+        # чтобы не сравнивать запрос со всем словарём
+        sounds = defaultdict(list)
+        for w in words:
+            if len(w) >= 4 and w.isalpha():
+                key = sound_key(w)
+                item = (key, spelling[w], is_cyrillic(w))
+                sounds[len(key), "^" + key[0]].append(item)
+                sounds[len(key), key[-1] + "$"].append(item)
         with self.lock:
             self.rows, self.emb, self.bm25 = rows, emb, bm
+            self.words, self.sounds = words, sounds
             self.seg_cache.clear()
+
+    def respell(self, query: str) -> str | None:
+        """Запрос, где слова, которых нет в лекциях, заменены на похожие по звучанию слова на другом
+        алфавите: «что такое виндовс» → «что такое windows». None — заменять нечего."""
+        out, changed = [], False
+        for m in WORD.finditer(query):
+            w = m.group()
+            if len(w) >= 4 and w.lower() not in self.words:
+                key, cyr = sound_key(w), is_cyrillic(w)
+                limit = 0 if len(key) < 5 else 1 if len(key) < 9 else 2
+                near = {item for n in range(len(key) - limit, len(key) + limit + 1)
+                        for edge in ("^" + key[0], key[-1] + "$") for item in self.sounds.get((n, edge), ())}
+                best = min(((distance(key, k2, limit), -self.words[w2.lower()], w2)
+                            for k2, w2, c2 in near if c2 != cyr), default=None)
+                if best and best[0] <= limit:
+                    out.append(best[2])
+                    changed = True
+                    continue
+            out.append(w)
+        return " ".join(out) if changed else None
 
     def _segments(self, lecture_id):
         if lecture_id not in self.seg_cache:
@@ -198,9 +236,18 @@ class Index:
         return self.seg_cache[lecture_id]
 
     def search(self, query: str, lecture_id: str | None = None, k: int = 10, min_score: float = 0.02):
+        return self.search_ex(query, lecture_id, k, min_score)[0]
+
+    def search_ex(self, query: str, lecture_id: str | None = None, k: int = 10, min_score: float = 0.02):
+        """Результаты и исправленный запрос (если слова запроса пришлось заменить, иначе None)."""
         query = query.strip()
         if not query:
-            return []
+            return [], None
+        with self.lock:
+            respelled = self.respell(query)
+        return self._search(respelled or query, lecture_id, k, min_score), respelled
+
+    def _search(self, query: str, lecture_id: str | None, k: int, min_score: float):
         with self.lock:
             rows, emb, bm = self.rows, self.emb, self.bm25
         if not rows:
@@ -213,6 +260,10 @@ class Index:
         dense = emb @ qv
         dense[~mask] = -np.inf
         q_tokens = tokens(query)
+        # Слова запроса, которого нет в лекциях, ищем по родственным словам с той же основой:
+        # «планировщик» → «планирование», «планировании» (общее начало «планиров»)
+        for t in [t for t in q_tokens if t not in bm.post and len(t) >= 7]:
+            q_tokens += [u for u in bm.post if len(u) >= 6 and len(os.path.commonprefix([t, u])) >= max(6, len(t) - 3)]
         lex = bm.scores(q_tokens)
         lex[~mask] = -np.inf
 
@@ -225,7 +276,8 @@ class Index:
         for rank, i in enumerate(np.argsort(-lex)[:pool]):
             if lex[i] > 0 and np.isfinite(lex[i]):
                 fused[i] += 1 / (60 + rank)
-        cand = sorted(fused, key=fused.get, reverse=True)[:30]
+        # «Судья» на процессоре медленный (~0,3 с на кандидата) — там проверяем только самых вероятных
+        cand = sorted(fused, key=fused.get, reverse=True)[:30 if _models.get("dev") == "cuda" else 12]
         # Близость векторов (у bge-m3 ~0.35 — случайный текст, ~0.7 — точное попадание)
         # плюс небольшая прибавка за совпавшие слова. По ней решаем, показывать ли фрагмент вообще.
         lex_max = max((lex[i] for i in cand if np.isfinite(lex[i])), default=0) or 1

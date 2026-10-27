@@ -244,7 +244,8 @@ def subtitles(lecture_id: str, lang: str = "orig"):
 def do_search(q: str, lecture_id: str | None = None, k: int = 10):
     if not search.models_ready():
         raise HTTPException(503, search.models_error() or "Модели поиска ещё загружаются, подождите несколько секунд")
-    return {"query": q, "results": search.INDEX.search(q, lecture_id or None, k=min(max(k, 1), 30))}
+    results, respelled = search.INDEX.search_ex(q, lecture_id or None, k=min(max(k, 1), 30))
+    return {"query": q, "respelled": respelled, "results": results}
 
 
 class AskIn(BaseModel):
@@ -300,4 +301,6 @@ if FRONTEND_DIST.exists():
         f = FRONTEND_DIST / path
         if path and f.is_file() and FRONTEND_DIST in f.resolve().parents:
             return FileResponse(f)
-        return FileResponse(FRONTEND_DIST / "index.html")
+        # Страницу не кэшируем: после обновления браузер сразу берёт новый интерфейс
+        # (файлы в /assets с хэшем в имени и кэшируются как обычно)
+        return FileResponse(FRONTEND_DIST / "index.html", headers={"Cache-Control": "no-cache"})

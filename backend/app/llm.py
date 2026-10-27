@@ -1,6 +1,7 @@
 """Локальная языковая модель через Ollama: конспект, структура лекции, ответы на вопросы."""
 import json
 import re
+import threading
 
 import httpx
 
@@ -8,6 +9,11 @@ from .config import LLM_MODEL, OLLAMA_URL
 
 
 _thinking = {}
+
+# Видеокарта занята распознаванием речи: Whisper и модели поиска вместе с языковой моделью в 6 ГБ
+# не помещаются, Windows вытесняет память в ОЗУ — и распознавание, и ответ замедляются в разы.
+# Пока флаг стоит, языковая модель работает на процессоре и выгружается сразу после ответа.
+gpu_busy = threading.Event()
 
 
 class LLMUnavailable(RuntimeError):
@@ -22,6 +28,9 @@ def _body(messages, stream, temperature, num_ctx):
         "keep_alive": "10m",
         "options": {"temperature": temperature, "num_ctx": num_ctx},
     }
+    if gpu_busy.is_set():
+        body["options"]["num_gpu"] = 0  # ни одного слоя на видеокарту
+        body["keep_alive"] = 0
     # У «рассуждающих» моделей отключаем рассуждения вслух — для конспекта они только замедляют
     if _supports_thinking():
         body["think"] = False

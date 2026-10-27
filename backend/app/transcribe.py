@@ -63,6 +63,10 @@ def _read_wav(path: Path) -> np.ndarray:
 
 def transcribe(audio: Path, on_progress=None) -> tuple[list[dict], str, float]:
     """Возвращает фразы [{start, end, text}], язык и длительность."""
+    # Кэш PyTorch после поиска и индекса прошлых лекций держит видеопамять — отдаём её Whisper
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     model = _load()
     try:
         segments, info = model.transcribe(

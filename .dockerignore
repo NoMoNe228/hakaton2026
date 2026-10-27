@@ -1,0 +1,13 @@
+# В образ — только то, что нужно для сборки и работы сервиса
+.git
+.venv
+**/node_modules
+**/__pycache__
+*.pyc
+frontend/dist
+data
+docs
+extension
+*.md
+!README.md
+.env
