@@ -1,0 +1,15 @@
+# torch ставится отдельно, с поддержкой видеокарты (см. README):
+# pip install torch --index-url https://download.pytorch.org/whl/cu128
+faster-whisper>=1.1
+sentence-transformers>=3.0
+fastapi>=0.115
+uvicorn[standard]
+python-multipart
+yt-dlp[default,curl-cffi]
+imageio-ffmpeg
+httpx
+numpy
+snowballstemmer
+# Библиотеки CUDA для faster-whisper на Windows
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*
